@@ -1,5 +1,7 @@
 var http = require('http');
 var cells = require('./models/cellData');
+var chestCards = require('./models/chestCards');
+var chanceCards = require('./models/chanceCards');
 var server = http.createServer(function(req,res){
 
 });
@@ -7,8 +9,8 @@ server.listen(3001);
 console.log("Listening on 3001");
 var io = require('socket.io').listen(server);
 
-playerOneBank = 2000;
-playerTwoBank = 2000;
+playerOneBank = 1000;
+playerTwoBank = 0;
 playerOneTurn = true;
 playerTwoTurn = false;
 playerOnePosition = 0;
@@ -32,21 +34,73 @@ freeParkingBank = 200;
 message = '';
 playerOneCounter = 1;
 playerTwoCounter = 1;
+chestImage = "chest-back.png";
+chanceImage = "chance-back.png";
+byGroup = [];
+thisGroup = '';
+propertyOneGroup = [];
+groupOne = '';
+playerOneMonopoly = false;
+color = '';
+propertyTwoGroup = [];
+groupTwo = '';
+playerTwoMonopoly = false;
+playerOneRailroad = false;
+playerTwoRailroad = false;
+playerOneUtility = false;
+playerTwoUtility = false;
+railUtil = false;
+playerOneWin = false;
+playerTwoWin = false;
+notEnough = false;
+numberOfConnections = 0;
+playerOneSocketID = '';
+playerTwoSocketID = '';
+socketID = '';
 
 io.sockets.on('connect', function(socket){
-	console.log('someone connected...');
+	numberOfConnections++;
+	console.log(numberOfConnections);
+	if(numberOfConnections == 1){
+		playerOneSocketID = socket.conn.id;
+		socket.emit('playerNumber',{
+			pn: 1
+		});
+	}
+	if(numberOfConnections == 2){
+		playerTwoSocketID = socket.conn.id;
+	
+		socket.emit('playerNumber',{
+			pn: 2
+		});
+
+		io.sockets.emit('startingGame', {
+			playerOneSocket: playerOneSocketID,
+			playerTwoSocket: playerTwoSocketID,
+			playerOneTurn: playerOneTurn,
+			playerTwoTurn: playerTwoTurn
+		});	
+	}
+
+socket.on('disconnect', function () {
+   io.sockets.emit('userDisconnected');
+   console.log('user disconnected');
+  numberOfConnections--;
+ });
 
 	socket.on('dice_to_server', function(data){
 		dice1 = Math.floor(Math.random() * 6 + 1);
 		imageName1 = "css/images/d" + dice1 + ".gif";
 		dice2 = Math.floor(Math.random() * 6 + 1);
 		imageName2 = "css/images/d" + dice2 + ".gif";
-		diceTotal = 10;
+		diceTotal = 1;
+		// diceTotal = dice1 + dice2;
 		if((playerOneInJail && playerOneTurn) || (playerTwoInJail && playerTwoTurn)){
 			jailFunction();
 		}else{
 			updatePosition();
 		}
+		checkWin();
 
 		io.sockets.emit('dice_to_client',{
 			dice1: dice1,
@@ -69,6 +123,11 @@ io.sockets.on('connect', function(socket){
 			showRent: showRent,
 			message: message,
 			showSpecialMessage: showSpecialMessage,
+			chestImage: chestImage,
+			chanceImage: chanceImage,
+			playerOneWin: playerOneWin,
+			playerTwoWin: playerTwoWin,
+			socketID: socketID
 		});
 		if(showRent){
 			changePlayer();
@@ -78,6 +137,13 @@ io.sockets.on('connect', function(socket){
 			changePlayer();
 			showSpecialMessage = false;
 		}
+		playerOneMonopoly = false;
+		playerTwoMonopoly = false;
+		railUtil = false;
+		purchaseOption = false;
+		notEnough = false;
+		chestImage = "chest-back.png";
+		chanceImage = "chance-back.png";
 	});
 
 	socket.on('purchase_to_server', function(data){
@@ -89,9 +155,18 @@ io.sockets.on('connect', function(socket){
 			playerTwoBank: playerTwoBank,
 			playerOneTurn: playerOneTurn,
 			playerTwoTurn: playerTwoTurn,
-			purchaseMessage: purchaseMessage
+			purchaseMessage: purchaseMessage,
+			playerOneMonopoly: playerOneMonopoly,
+			playerTwoMonopoly: playerTwoMonopoly,
+			railUtil: railUtil,
+			color: color,
+			message: message,
+			showSpecialMessage: showSpecialMessage,
+			notEnough: notEnough
 		});
-		changePlayer();
+			changePlayer();
+			message = '';
+		
 	});
 
 	socket.on('notPurchase_to_server', function(data){
@@ -111,10 +186,21 @@ io.sockets.on('connect', function(socket){
 	});
 });
 
+
+var checkWin = function(){
+	if(playerOneBank < 0){
+		playerTwoWin = true;
+	}
+	if(playerTwoBank < 0){
+		playerOneWin = true;
+	}
+}
+
 var purchaseProperty = function(){
 	if(playerOneTurn){
 		if(playerOneBank < cells[playerOnePosition].price){
 			purchaseMessage = "has insufficent funds to purchase";
+			notEnough = true;
 		}else{
 			cells[playerOnePosition].status = "owned";
 			playerOneProperties.push(cells[playerOnePosition]);
@@ -124,13 +210,95 @@ var purchaseProperty = function(){
 	}else{
 		if(playerTwoBank<cells[playerTwoPosition].price){
 			purchaseMessage = "has insufficent funds to purchase";
+			notEnough = true;
 		}else{
 			cells[playerTwoPosition].status = "owned";
 			playerTwoProperties.push(cells[playerTwoPosition]);
 			playerTwoBank -= cells[playerTwoPosition].price;
 			purchaseMessage = " purchased ";
 		}
-	}	
+	}
+	checkMonopoly();
+}
+
+for(i=0; i<cells.length; i++){
+    thisGroup = cells[i].group;
+    byGroup[thisGroup] = 0;
+}
+for(i=0; i<cells.length; i++){
+    thisGroup = cells[i].group;
+    byGroup[thisGroup]++;
+}
+
+function checkMonopoly(){
+	if(playerOneTurn){
+		color = cells[playerOnePosition].group;
+	    for(i=0; i<playerOneProperties.length; i++){
+	        groupOne = playerOneProperties[i].group;
+	        propertyOneGroup[groupOne] = 0;
+	    }
+	    for(i=0; i<playerOneProperties.length; i++){
+	        groupOne = playerOneProperties[i].group;
+	       	propertyOneGroup[groupOne]++;
+		    
+		    if(groupOne == "Railroad"){
+	    		playerOneProperties[i].rent = playerOneProperties[i].rent * Math.pow(2, propertyOneGroup[groupOne] -1);
+	    		railUtil = true;
+                message = "Player 1 will collect $" + playerOneProperties[i].rent + " on all owned Railroads";
+		    }
+		    else if(groupOne == "Utility"){
+		    	railUtil = true;
+		    	var multiplier = (propertyOneGroup[groupOne]==1) ? 4 : 10;
+		    	playerOneProperties[i].rent = diceTotal * multiplier;
+                message = " Rent is now  " + multiplier + " times amount shown on dice";
+			}else{
+				message = '';
+			}
+		}
+		if((propertyOneGroup[color] == byGroup[color]) && (groupOne != "Utility") && (groupOne != "Railroad")){
+            for (var i = 0; i <playerOneProperties.length; i++){
+                if(playerOneProperties[i].group == color){
+                    playerOneProperties[i].rent = playerOneProperties[i].rent * 2;
+                    message = " Player One now has a Monopoly! Rent is doubled!";
+                    playerOneMonopoly = true;
+                }
+            }
+        }
+	}
+	else{
+		color = cells[playerTwoPosition].group;
+	    for(i=0; i<playerTwoProperties.length; i++){
+	        groupTwo = playerTwoProperties[i].group;
+	        propertyTwoGroup[groupTwo] = 0;
+	    }
+	    for(i=0; i<playerTwoProperties.length; i++){
+	        groupTwo = playerTwoProperties[i].group;
+	       	propertyTwoGroup[groupTwo]++;
+
+		    if(groupTwo == "Railroad"){
+	    		playerTwoProperties[i].rent = playerTwoProperties[i].rent * Math.pow(2, propertyTwoGroup[groupTwo] -1);
+	    		railUtil = true;
+                message = "Player 2 will collect $" + playerTwoProperties[i].rent + " on all owned Railroads";
+		    }
+		    else if(groupTwo == "Utility"){
+		    	var multiplier = (propertyTwoGroup[groupTwo]==1) ? 4 : 10;
+		    	playerTwoProperties[i].rent = diceTotal * multiplier;
+		    	railUtil = true;
+                message = " Rent is now  " + multiplier + " times amount shown on dice";
+			}else{
+				message = '';
+			}
+	    }
+	    if((propertyTwoGroup[color] == byGroup[color]) && (groupTwo != "Utility") && (groupTwo != "Railroad")){
+	    	for (var i = 0; i <playerTwoProperties.length; i++){
+	    		if(playerTwoProperties[i].group == color){
+	    			playerTwoMonopoly = true;
+	    			playerTwoProperties[i].rent = playerTwoProperties[i].rent * 2;
+	    			message = " Player 2 now has a Monopoly! Rent is doubled!";
+	    		}
+	    	}
+	    }
+	}
 }
 
 var updatePosition = function(){
@@ -148,7 +316,7 @@ var updatePosition = function(){
 	checkPosition();
 }
 
-var passGo = function(player){
+var passGo = function(){
 	if(playerOneTurn){
 		playerOneBank += 200;
 		playerOnePosition -= 40;
@@ -164,10 +332,15 @@ var changePlayer = function(){
 	}else{
 		playerOneTurn = true;
 		playerTwoTurn = false;
+
 	}
+	io.sockets.emit('changePlayer',{
+		playerOneTurn: playerOneTurn,
+		playerTwoTurn: playerTwoTurn
+	});
 }
 
-var checkPosition = function(utilityChance){
+var checkPosition = function(){
 	if(playerOneTurn){
 		position = playerOnePosition;
 	}else{
@@ -177,11 +350,7 @@ var checkPosition = function(utilityChance){
 		purchaseOption = true;
 	}else if(cells[position].status == "owned"){
 		purchaseOption = false;
-		if(utilityChance){
-			// utilityFunction();
-		}else{
-			payRent(position);
-		}
+		payRent(position);
 	}else if(cells[position].status == "public"){
 		purchaseOption = false;
 		showSpecialMessage = true;
@@ -191,24 +360,22 @@ var checkPosition = function(utilityChance){
 var specialPosition = function(){
 	if(playerOneTurn){
 		position = playerOnePosition;
+		var player = 1;
 	}else{
 		position = playerTwoPosition;
+		var player = 2;
 	}
 	if(position == 0){
 		message = "Collect $200";
 	}
+	if(position == 10){
+		message = "Just visiting";
+	}
 	if(position == 2 || position == 17 || position == 33){
-		// chestCard(player, position);
-		// $scope.chestImage = chestImage;
-		// if(jailFreeOne){
-		// 	$scope.jailFreeCardOne = true;
-		// }if(jailFreeTwo){
-		// 	$scope.jailFreeCardTwo = true;
-		// }
+		chestCard();
 	}
 	if(position == 7 || position == 22 || position == 36){
-		// chanceCard(player, position);
-		// $scope.chanceImage = chanceImage;
+		chanceCard();
 	}
 	if(position == 4){
 		incomeTax();
@@ -222,15 +389,12 @@ var specialPosition = function(){
 	if(position == 30){
 		gotojail();
 	}
-	if(position == 10){
-		message = "Just visiting";
-	}
-	// changePlayer();
 }
 
 var jailFunction = function(){
 	showSpecialMessage = true;
 	if(playerOneTurn){
+		position = playerOnePosition;
 		if(jailFreeOne){
 			message = "Player One has Get Out of Jail Free Card. Can leave Jail next Turn";
 			playerOneInJail = false;
@@ -252,6 +416,7 @@ var jailFunction = function(){
 			}
 		}
 	}else{
+		position = playerTwoPosition;
 		if(jailFreeTwo){
 			message = "Player Two has Get Out of Jail Free Card. Can leave Jail next Turn";
 			playerTwoInJail = false;
@@ -327,17 +492,223 @@ var freeParking = function(){
 	message = "Collect Free Parking Bank!";
 }
 
+var chestCard = function(){
+	var randomChestCard = chestCards[Math.floor(Math.random() * 10)];
+	// var randomChestCard = chestCards[0];
+	if(randomChestCard.name == "doctor"){
+		doctor();
+	}
+	if(randomChestCard.name == "bank"){
+		bank();
+	}
+	if(randomChestCard.name == "inherit"){
+		inherit();
+	}
+	if(randomChestCard.name == "school"){
+		school();
+	}
+	if(randomChestCard.name == "holiday"){
+		holiday();
+	}
+	if(randomChestCard.name == "insurance"){
+		insurance();
+	}
+	if(randomChestCard.name == "gotojail"){
+		gotojail();
+	}	
+	if(randomChestCard.name == "go"){
+		go();
+	}
+	if(randomChestCard.name == "opera"){
+		opera();
+	}
+	if(randomChestCard.name == "jailfree"){
+		jailFree();
+	}
+	message = randomChestCard.message;
+	chestImage = randomChestCard.image;
+}
 
-var byGroup = [];
-var thisGroup;
-for(i=0; i<cells.length; i++){
-    thisGroup = cells[i].group;
-    byGroup[thisGroup] = 0;
+var doctor = function(){
+	if(playerOneTurn){
+		playerOneBank -= 50;
+	 }else{
+	 	playerTwoBank -= 50;
+	 }
+	freeParkingBank += 50;
 }
-for(i=0; i<cells.length; i++){
-    thisGroup = cells[i].group;
-    byGroup[thisGroup]++;
+
+var bank = function(){
+	if(playerOneTurn){
+		playerOneBank += 75;
+	 }else{
+	 	playerTwoBank += 75;
+	 }
 }
+var inherit = function(){
+	if(playerOneTurn){
+		playerOneBank += 100;
+	 }else{
+	 	playerTwoBank += 100;
+	 }
+}
+
+var school = function(){
+	if(playerOneTurn){
+		playerOneBank -= 75;
+	 }else{
+	 	playerTwoBank -= 75;
+	 }
+	 freeParkingBank += 75;
+}
+var holiday = function(){
+	if(playerOneTurn){
+		playerOneBank += 100;
+	 }else{
+	 	playerTwoBank += 100;
+	 }
+}
+
+var insurance = function(){
+	if(playerOneTurn){
+		playerOneBank += 100;
+	 }else{
+	 	playerTwoBank += 100;
+	 }
+}
+
+var go = function(){
+	if(playerOneTurn){
+		playerOneBank += 200;
+		playerOnePosition = 0;
+	}else{
+		playerTwoBank += 200;
+		playerTwoPosition = 0;
+	}
+}
+var opera = function(){
+	if(playerOneTurn){
+		playerOneBank += 50;
+		playerTwoBank -= 50;
+	}else{
+		playerTwoBank += 50;
+		playerOneBank -= 50;
+	}
+}
+
+var jailFree = function(){
+	if(playerOneTurn){
+		jailFreeOne = true;
+	}else{
+		jailFreeTwo = true;
+	}
+}
+
+var chanceCard = function(){
+	var randomChanceCard = chanceCards[Math.floor(Math.random() * 9)];
+
+	if(randomChanceCard.name == "go"){
+		go();
+	}
+	if(randomChanceCard.name == "illinois"){
+		illinois();
+	}
+	if(randomChanceCard.name == "stCharles"){
+		stCharles();
+	}
+	if(randomChanceCard.name == "gotojail"){
+		gotojail();
+	}
+	if(randomChanceCard.name == "backThree"){
+		backThree();
+	}
+	if(randomChanceCard.name == "jailfree"){
+		jailFree();
+	}
+	if(randomChanceCard.name == "boardwalk"){
+		boardwalk();
+	}
+	if(randomChanceCard.name == "chairman"){
+		chairman();
+	}
+	if(randomChanceCard.name == "building"){
+		building();
+	}
+	message = randomChanceCard.message;
+	chanceImage = randomChanceCard.image;
+
+	if(playerOneTurn){
+		position = playerOnePosition;
+	}else{
+		position = playerTwoPosition;
+	}
+	if(cells[position].status == "vacant"){
+		showSpecialMessage = false;
+		purchaseOption = true;
+	}else if(cells[position].status == "owned"){
+		showSpecialMessage = false;
+		purchaseOption = false;
+		payRent(position);	
+	}else if(cells[position].status == "public"){
+		purchaseOption = false;
+		showSpecialMessage = true;
+	}
+}
+
+var illinois = function(){
+	if(playerOneTurn){
+		playerOnePosition = 24;
+	}else{
+		playerTwoPosition = 24;
+	}
+}
+var stCharles = function(){
+	if(playerOneTurn){
+		if(playerOnePosition !== 7){
+			playerOneBank += 200;
+		}
+		playerOnePosition = 11;
+	}else{
+		if(playerTwoPosition !== 7){
+			playerTwoBank += 200;
+		}
+		playerTwoPosition = 11;
+	}
+}
+
+var backThree = function(){
+	if(playerOneTurn){
+		playerOnePosition -= 3;
+	}else{
+		playerTwoPosition -= 3;
+	}
+}	
+
+var boardwalk = function(){
+	if(playerOneTurn){
+		playerOnePosition = 39;
+	}else{
+		playerTwoPosition = 39;
+	}
+}
+
+var chairman = function(){
+	if(playerOneTurn){
+		playerOneBank -= 50;
+		playerTwoBank += 50;
+	}else{
+		playerOneBank += 50;
+		playerTwoBank -= 50;
+	}
+}
+var building = function(){
+	if(playerOneTurn){
+		playerOneBank += 150;
+	}else{
+		playerTwoBank += 150;
+	}
+}
+
 
 
 
