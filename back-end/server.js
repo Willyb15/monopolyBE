@@ -71,6 +71,11 @@ io.sockets.on('connect', function(socket){
 		socket.emit('playerNumber',{
 			pn: 2
 		});
+
+		io.sockets.emit('startingGame', {
+			playerOneTurn: playerOneTurn,
+			playerTwoTurn: playerTwoTurn
+		});	
 	}
 
 	socket.on('numMachines', function (data){
