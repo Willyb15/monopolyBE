@@ -59,6 +59,7 @@ socketID = '';
 io.sockets.on('connect', function(socket){
 	
 	numberOfConnections++;
+	console.log('someone connected');
 	console.log(numberOfConnections);
 
 	if(numberOfConnections == 1){
@@ -105,7 +106,7 @@ socket.on('disconnect', function () {
 		imageName1 = "css/images/d" + dice1 + ".gif";
 		dice2 = Math.floor(Math.random() * 6 + 1);
 		imageName2 = "css/images/d" + dice2 + ".gif";
-		// diceTotal = 10;
+		// diceTotal = 10;e
 		diceTotal = dice1 + dice2;
 		if((playerOneInJail && playerOneTurn) || (playerTwoInJail && playerTwoTurn)){
 			jailFunction();
